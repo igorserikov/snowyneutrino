@@ -1,0 +1,4 @@
+{% for c in clusters %}<tr><td><a href="/clusters/{{ c.id }}">{{ c.name }}</a></td><td>{{ c.provider }}</td><td>{{ c.region }}</td><td><span class="status {{ c.status }}">{{ c.status }}</span></td><td>{{ c.trino_version }}</td><td>{{ c.worker_count }}</td><td>
+{% if c.status == 'running' %}<button onclick="act('{{ c.id }}','stop')">Stop</button><a class="button" href="/clusters/{{ c.id }}">SQL</a>{% elif c.status == 'stopped' or c.status == 'failed' %}<button onclick="act('{{ c.id }}','start')">Start</button>{% endif %}
+{% if c.status in ['running','stopped','failed'] %}<button class="danger" onclick="removeCluster('{{ c.id }}','{{ c.name }}')">Delete</button>{% endif %}</td></tr>
+{% else %}<tr><td colspan="7">No clusters yet.</td></tr>{% endfor %}
