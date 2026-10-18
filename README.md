@@ -2,7 +2,7 @@
 
 SnowTrino is a FastAPI and server-rendered starter control plane for Trino clusters. It currently provides a database-backed cluster/operation API, a small web UI, SQL history, and a **mock infrastructure provider** for local lifecycle demos.
 
-## Run locally
+## Run with Docker Compose
 
 Requirements: Docker Desktop with Docker Compose.
 
@@ -13,9 +13,27 @@ docker compose up --build
 
 Open http://localhost:8000. PostgreSQL stores clusters, operations, and query history. The dedicated worker polls the operations table; lifecycle requests return HTTP 202 and survive web-process restarts. The default `INFRASTRUCTURE_MODE=mock` never calls AWS, Terraform, Helm, or Kubernetes. It exercises lifecycle state transitions with a demo endpoint. That endpoint is not a real Trino server, so SQL execution requires a separately configured, reachable Trino endpoint.
 
-For development without Docker, install `pip install -e '.[dev]'`, then run `alembic upgrade head`,
-$env:DATABASE_URL = "sqlite:///./snowtrino.db",
-`uvicorn snowtrino.main:app --reload`, and in another terminal `python -m snowtrino.worker`. SQLite is the local default; set `DATABASE_URL` for PostgreSQL.
+## Run locally without Docker
+
+This setup uses SQLite. Copy the local example to `.env` so the API, migration command, and worker all read the same database URL:
+
+```powershell
+pip install -e '.[dev]'
+Copy-Item .env.local.example .env
+alembic upgrade head
+```
+
+Then, from the project root with the virtual environment active, start the API and worker in separate PowerShell windows:
+
+```powershell
+uvicorn snowtrino.main:app --reload
+```
+
+```powershell
+python -m snowtrino.worker
+```
+
+The worker and API both load `.env` from the project root. Keep the same `.env` in use for both. `.env.example` is configured for Docker Compose, where the PostgreSQL host `db` is resolvable; it will not work when running commands directly from Windows. To switch modes, copy the matching example over `.env`.
 
 ## API
 
