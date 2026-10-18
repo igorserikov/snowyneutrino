@@ -11,15 +11,22 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
-Open http://localhost:8000. PostgreSQL stores clusters, operations, and query history. The dedicated worker polls the operations table; lifecycle requests return HTTP 202 and survive web-process restarts. The default `INFRASTRUCTURE_MODE=mock` never calls AWS, Terraform, Helm, or Kubernetes. It exercises lifecycle state transitions with a demo endpoint. That endpoint is not a real Trino server, so SQL execution requires a separately configured, reachable Trino endpoint.
+Open http://localhost:8000. PostgreSQL stores clusters, operations, and query history. The dedicated worker polls the operations table; lifecycle requests return HTTP 202 and survive web-process restarts. In mock mode, the app uses one local Trino container and waits for `SELECT 1` to succeed before marking the cluster ready. The Trino HTTP port is bound to localhost only. Mock lifecycle actions update the app's cluster state; the shared Trino container itself stays running until Docker Compose stops it.
+
+The local Trino image includes a read-only TPC-H sample catalog. For example, open the cluster's SQL page and run:
+
+```sql
+SELECT nationkey, name FROM tpch.tiny.nation LIMIT 10;
+```
 
 ## Run locally without Docker
 
-This setup uses SQLite. Copy the local example to `.env` so the API, migration command, and worker all read the same database URL:
+This setup uses SQLite and runs Trino in Docker. Copy the local example to `.env`, then start the Trino container:
 
 ```powershell
 pip install -e '.[dev]'
 Copy-Item .env.local.example .env
+docker compose up -d trino
 alembic upgrade head
 ```
 
@@ -33,7 +40,7 @@ uvicorn snowtrino.main:app --reload
 python -m snowtrino.worker
 ```
 
-The worker and API both load `.env` from the project root. Keep the same `.env` in use for both. `.env.example` is configured for Docker Compose, where the PostgreSQL host `db` is resolvable; it will not work when running commands directly from Windows. To switch modes, copy the matching example over `.env`.
+The worker and API both load `.env` from the project root. Keep the same `.env` in use for both. `.env.example` is configured for the full Docker Compose stack, where the PostgreSQL and Trino service names are resolvable; it will not work when running Python commands directly from Windows. To switch modes, copy the matching example over `.env`.
 
 ## API
 
@@ -41,7 +48,7 @@ The `/api/v1` endpoints cover cluster create/list/details/start/stop/scale/delet
 
 ## Current implementation boundary
 
-- The mock provider is the only working lifecycle backend.
+- The mock provider connects to one Dockerized local Trino instance. Create another mock cluster only after deleting the existing one. Stop and delete change SnowTrino's logical state; stop the Trino container separately with `docker compose stop trino` if you want to stop its process.
 - `TerraformAdapter` is a safe argument-list subprocess wrapper with timeout and bounded error output, but no provider module or cluster workspace is supplied yet.
 - Helm deployment, real Trino readiness checks, and AWS EKS/VPC provisioning still need implementation before setting infrastructure mode to a real provider. Non-mock mode deliberately fails with an actionable configuration error rather than reporting fake success.
 - Azure and GCP return unsupported-provider errors outside mock mode.
@@ -53,7 +60,7 @@ The current repository does not provision AWS resources. When adding the AWS pro
 
 ## Tests and quality
 
-Run `pytest`, `ruff check snowtrino tests`, and `mypy snowtrino` after installing the `dev` extra. Unit tests use SQLite and mocks and do not need cloud credentials. `alembic upgrade head` applies the initial PostgreSQL-compatible schema.
+Run `pytest`, `ruff check snowtrino tests`, and `mypy snowtrino` after installing the `dev` extra. Unit tests use SQLite and mocks and do not need cloud credentials. `alembic upgrade head` applies the PostgreSQL- and SQLite-compatible schema.
 
 ## Next implementation stage
 

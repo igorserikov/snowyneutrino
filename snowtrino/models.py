@@ -27,13 +27,15 @@ class ClusterStatus(StrEnum):
 
 class Cluster(Base):
     __tablename__ = "clusters"
-    __table_args__ = (UniqueConstraint("name", name="uq_cluster_name"),)
+    __table_args__ = (UniqueConstraint("name", name="uq_cluster_name"),
+                      UniqueConstraint("mock_slot", name="uq_cluster_mock_slot"))
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     name: Mapped[str] = mapped_column(String(63), nullable=False)
     provider: Mapped[str] = mapped_column(String(16), default="AWS")
     region: Mapped[str] = mapped_column(String(64), default="us-east-1")
     status: Mapped[str] = mapped_column(String(20), default=ClusterStatus.pending)
     endpoint: Mapped[str | None] = mapped_column(String(512))
+    mock_slot: Mapped[str | None] = mapped_column(String(16))
     namespace: Mapped[str] = mapped_column(String(63), default="default")
     trino_version: Mapped[str] = mapped_column(String(32), default="455")
     worker_count: Mapped[int] = mapped_column(Integer, default=2)

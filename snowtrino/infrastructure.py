@@ -1,10 +1,12 @@
 import json
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from snowtrino.config import settings
 from snowtrino.models import Cluster
+from snowtrino.query import check_ready
 
 
 class UnsupportedProviderError(RuntimeError):
@@ -12,13 +14,27 @@ class UnsupportedProviderError(RuntimeError):
 
 
 class MockProvider:
-    """Deterministic provider for local demos; does not create cloud resources."""
+    """Uses the single local Trino service configured for mock mode."""
+
+    def _endpoint_when_ready(self) -> str:
+        endpoint = settings.mock_trino_endpoint.rstrip("/")
+        deadline = time.monotonic() + settings.mock_trino_startup_timeout_seconds
+        last_error: Exception | None = None
+        while time.monotonic() < deadline:
+            try:
+                if check_ready(endpoint):
+                    return endpoint
+            except Exception as exc:
+                last_error = exc
+            time.sleep(1)
+        detail = f" Last connection error: {last_error}" if last_error else ""
+        raise RuntimeError(f"Local Trino did not become ready before timeout.{detail}")
 
     def apply(self, cluster: Cluster) -> str:
-        return f"http://{cluster.name}.localhost:8080"
+        return self._endpoint_when_ready()
 
     def start(self, cluster: Cluster) -> str:
-        return cluster.endpoint or self.apply(cluster)
+        return self._endpoint_when_ready()
 
     def stop(self, cluster: Cluster) -> None:
         return None

@@ -3,10 +3,10 @@
 <title>SnowTrino</title><script src="https://unpkg.com/htmx.org@2.0.4"></script><link rel="stylesheet" href="/static/style.css"></head>
 <body><main><header><div><h1>SnowTrino</h1><p>Trino cluster control plane</p></div></header>
 <section class="cards"><article><b>{{ counts.total }}</b><span>Clusters</span></article><article><b>{{ counts.running }}</b><span>Running</span></article><article><b>{{ counts.stopped }}</b><span>Stopped</span></article><article><b>{{ counts.failed }}</b><span>Failed</span></article></section>
-<section><h2>Create cluster</h2><form id="create" onsubmit="return createCluster(event)">
+<section><h2>Create cluster</h2>{% if infrastructure_mode == 'mock' %}<p>Mock mode uses the local Docker Trino service. Provider and region are saved as metadata only.</p>{% if counts.total > 0 %}<p>Only one mock cluster is allowed. Delete the current cluster before creating another.</p>{% endif %}{% endif %}<form id="create" onsubmit="return createCluster(event)">
 <input name="name" required pattern="[a-z][a-z0-9-]{1,62}" placeholder="cluster-name"><input name="region" value="us-east-1" required>
 <select name="provider"><option>AWS</option><option>Azure</option><option>GCP</option></select><input name="trino_version" value="455" aria-label="Trino version">
-<input name="worker_count" type="number" min="1" max="100" value="2"><button>Create</button></form><p id="message"></p></section>
+<input name="worker_count" type="number" min="1" max="100" value="2"><button {% if infrastructure_mode == 'mock' and counts.total > 0 %}disabled{% endif %}>Create</button></form><p id="message"></p></section>
 <section><h2>Clusters</h2><table><thead><tr><th>Name</th><th>Provider</th><th>Region</th><th>Status</th><th>Version</th><th>Workers</th><th>Actions</th></tr></thead><tbody hx-get="/fragments/clusters" hx-trigger="every 5s" hx-swap="innerHTML">
 {% include "cluster_rows.html" %}</tbody></table></section>
 <section><h2>Recent operations</h2><table><tr><th>Type</th><th>Status</th><th>Created</th><th>Log</th></tr>{% for op in operations %}<tr><td>{{ op.kind }}</td><td>{{ op.status }}</td><td>{{ op.created_at }}</td><td><a href="/api/v1/operations/{{ op.id }}/logs">View</a></td></tr>{% else %}<tr><td colspan="4">No operations yet.</td></tr>{% endfor %}</table></section>

@@ -26,7 +26,15 @@ def claim_one():
 def process(operation_id: str):
     with SessionLocal() as db:
         op = db.get(Operation, operation_id)
+        if op is None:
+            return
         cluster = db.get(Cluster, op.cluster_id)
+        if cluster is None:
+            op.status = "failed"
+            op.error = "Cluster not found for operation"
+            op.finished_at = datetime.now(timezone.utc)
+            db.commit()
+            return
         try:
             provider = provider_for(cluster.provider)
             op.logs += f"[{datetime.now(timezone.utc).isoformat()}] {op.kind} started\n"
@@ -54,6 +62,7 @@ def process(operation_id: str):
                 provider.destroy(cluster)
                 cluster.status = "deleted"
                 cluster.endpoint = None
+                cluster.mock_slot = None
             op.status = "succeeded"
             op.logs += "Operation completed.\n"
         except Exception as exc:

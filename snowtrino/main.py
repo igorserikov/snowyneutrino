@@ -9,8 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from snowtrino.config import settings
 from snowtrino.db import SessionLocal
-from snowtrino.infrastructure import provider_for
 from snowtrino.models import Cluster, ClusterStatus, Operation, QueryRecord
 from snowtrino.query import encode_result, execute
 from snowtrino.schemas import ClusterCreate, QueryRequest, ScaleRequest
@@ -48,7 +48,10 @@ def list_clusters(db: Session = Depends(get_db)):
 
 @app.post("/api/v1/clusters", status_code=status.HTTP_202_ACCEPTED)
 def create_cluster(body: ClusterCreate, db: Session = Depends(get_db)):
-    cluster = Cluster(**body.model_dump(), status=ClusterStatus.pending)
+    mock_slot = "local" if settings.infrastructure_mode == "mock" else None
+    if mock_slot and db.scalar(select(Cluster.id).where(Cluster.status != ClusterStatus.deleted)):
+        raise HTTPException(409, "Mock mode supports one cluster at a time; delete the existing cluster first")
+    cluster = Cluster(**body.model_dump(), status=ClusterStatus.pending, mock_slot=mock_slot)
     db.add(cluster)
     try:
         db.flush()
@@ -57,6 +60,8 @@ def create_cluster(body: ClusterCreate, db: Session = Depends(get_db)):
         db.commit()
     except IntegrityError as exc:
         db.rollback()
+        if mock_slot and db.scalar(select(Cluster.id).where(Cluster.status != ClusterStatus.deleted)):
+            raise HTTPException(409, "Mock mode supports one cluster at a time; delete the existing cluster first") from exc
         raise HTTPException(409, "A cluster with this name already exists") from exc
     return {"cluster_id": cluster.id, "operation_id": op.id, "status": op.status}
 
@@ -126,13 +131,15 @@ def run_query(cluster_id: str, body: QueryRequest, db: Session = Depends(get_db)
         record = QueryRecord(cluster_id=cluster.id, sql=body.sql, status="succeeded",
                              duration_ms=int((time.monotonic()-started)*1000), row_count=len(rows),
                              result_json=encode_result(columns, rows))
-        db.add(record); db.commit()
+        db.add(record)
+        db.commit()
         return {"query_id": record.id, "status": record.status, "duration_ms": record.duration_ms,
                 "row_count": record.row_count, "columns": columns, "rows": rows}
     except Exception as exc:
         record = QueryRecord(cluster_id=cluster.id, sql=body.sql, status="failed",
                              duration_ms=int((time.monotonic()-started)*1000), error=str(exc)[:2000])
-        db.add(record); db.commit()
+        db.add(record)
+        db.commit()
         raise HTTPException(502, "Trino query failed") from exc
 
 
@@ -169,7 +176,8 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
               "stopped": sum(c.status == "stopped" for c in clusters),
               "failed": sum(c.status == "failed" for c in clusters)}
     return templates.TemplateResponse(request, "dashboard.html", {"clusters": clusters,
-                                        "operations": operations, "counts": counts})
+                                        "operations": operations, "counts": counts,
+                                        "infrastructure_mode": settings.infrastructure_mode})
 
 
 @app.get("/fragments/clusters", response_class=HTMLResponse)
