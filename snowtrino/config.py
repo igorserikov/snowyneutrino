@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     infrastructure_mode: str = "mock"
     mock_trino_endpoint: str = "http://localhost:8080"
     mock_trino_startup_timeout_seconds: int = 120
+    local_trino_startup_timeout_seconds: int = 120
     terraform_binary: str = "terraform"
     terraform_root: str = "terraform"
     terraform_timeout_seconds: int = 1800

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from snowtrino.db import SessionLocal
-from snowtrino.infrastructure import provider_for
+from snowtrino.infrastructure import UnsupportedProviderError, provider_for
 from snowtrino.models import Cluster, Operation
 
 
@@ -35,13 +35,14 @@ def process(operation_id: str):
             op.finished_at = datetime.now(timezone.utc)
             db.commit()
             return
+        provider = None
         try:
             provider = provider_for(cluster.provider)
             op.logs += f"[{datetime.now(timezone.utc).isoformat()}] {op.kind} started\n"
             payload = json.loads(op.payload or "{}")
             if op.kind == "create":
                 cluster.status = "provisioning"
-                op.logs += "Provisioning infrastructure (mock mode does not create cloud resources).\n"
+                op.logs += "Provisioning local Trino infrastructure.\n"
                 db.commit()
                 cluster.status = "starting"
                 cluster.endpoint = provider.apply(cluster)
@@ -64,14 +65,19 @@ def process(operation_id: str):
                 cluster.endpoint = None
                 cluster.mock_slot = None
             op.status = "succeeded"
-            op.logs += "Operation completed.\n"
         except Exception as exc:
-            cluster.status = "failed"
+            if op.kind == "scale" and isinstance(exc, UnsupportedProviderError) and cluster.endpoint:
+                cluster.status = "running"
+            else:
+                cluster.status = "failed"
             cluster.last_error = str(exc)[:2000]
             op.status = "failed"
             op.error = str(exc)[:2000]
-            op.logs += "Operation failed; see sanitized error field.\n"
         finally:
+            provider_logs = getattr(provider, "logs", []) if provider is not None else []
+            if provider_logs:
+                op.logs = (op.logs + "".join(provider_logs))[-20000:]
+            op.logs += "Operation completed.\n" if op.status == "succeeded" else "Operation failed; see error field.\n"
             op.finished_at = datetime.now(timezone.utc)
             db.commit()
 

@@ -48,9 +48,9 @@ def list_clusters(db: Session = Depends(get_db)):
 
 @app.post("/api/v1/clusters", status_code=status.HTTP_202_ACCEPTED)
 def create_cluster(body: ClusterCreate, db: Session = Depends(get_db)):
-    mock_slot = "local" if settings.infrastructure_mode == "mock" else None
+    mock_slot = "local" if settings.infrastructure_mode in {"mock", "local"} else None
     if mock_slot and db.scalar(select(Cluster.id).where(Cluster.status != ClusterStatus.deleted)):
-        raise HTTPException(409, "Mock mode supports one cluster at a time; delete the existing cluster first")
+        raise HTTPException(409, "Only one local Trino cluster is supported; delete the existing cluster first")
     cluster = Cluster(**body.model_dump(), status=ClusterStatus.pending, mock_slot=mock_slot)
     db.add(cluster)
     try:
@@ -61,7 +61,7 @@ def create_cluster(body: ClusterCreate, db: Session = Depends(get_db)):
     except IntegrityError as exc:
         db.rollback()
         if mock_slot and db.scalar(select(Cluster.id).where(Cluster.status != ClusterStatus.deleted)):
-            raise HTTPException(409, "Mock mode supports one cluster at a time; delete the existing cluster first") from exc
+            raise HTTPException(409, "Only one local Trino cluster is supported; delete the existing cluster first") from exc
         raise HTTPException(409, "A cluster with this name already exists") from exc
     return {"cluster_id": cluster.id, "operation_id": op.id, "status": op.status}
 

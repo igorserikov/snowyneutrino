@@ -7,4 +7,8 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 terraform-data/
+terraform/local/.terraform/
+terraform/local/terraform.tfstate
+terraform/local/terraform.tfstate.backup
+terraform/local/crash.log
 .vscode/

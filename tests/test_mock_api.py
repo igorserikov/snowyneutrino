@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -7,7 +8,8 @@ from snowtrino.config import settings
 from snowtrino.db import Base
 
 
-def test_mock_mode_allows_only_one_non_deleted_cluster(tmp_path, monkeypatch):
+@pytest.mark.parametrize("mode", ["mock", "local"])
+def test_local_trino_modes_allow_only_one_non_deleted_cluster(tmp_path, monkeypatch, mode):
     engine = create_engine(f"sqlite:///{tmp_path / 'test.db'}", connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     test_session = sessionmaker(bind=engine, expire_on_commit=False)
@@ -16,7 +18,7 @@ def test_mock_mode_allows_only_one_non_deleted_cluster(tmp_path, monkeypatch):
         with test_session() as db:
             yield db
 
-    monkeypatch.setattr(settings, "infrastructure_mode", "mock")
+    monkeypatch.setattr(settings, "infrastructure_mode", mode)
     main.app.dependency_overrides[main.get_db] = override_get_db
     try:
         client = TestClient(main.app)
@@ -25,7 +27,7 @@ def test_mock_mode_allows_only_one_non_deleted_cluster(tmp_path, monkeypatch):
 
         assert first.status_code == 202
         assert second.status_code == 409
-        assert "one cluster at a time" in second.json()["detail"]
+        assert "Only one local Trino cluster" in second.json()["detail"]
     finally:
         main.app.dependency_overrides.pop(main.get_db, None)
         engine.dispose()

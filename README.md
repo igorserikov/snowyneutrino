@@ -1,6 +1,6 @@
 # SnowTrino
 
-SnowTrino is a FastAPI and server-rendered starter control plane for Trino clusters. It currently provides a database-backed cluster/operation API, a small web UI, SQL history, and a **mock infrastructure provider** for local lifecycle demos.
+SnowTrino is a FastAPI and server-rendered starter control plane for Trino clusters. It provides a database-backed cluster/operation API, a small web UI, SQL history, a mock provider for Compose demos, and a Terraform-backed local Docker provider.
 
 ## Run with Docker Compose
 
@@ -19,14 +19,14 @@ The local Trino image includes a read-only TPC-H sample catalog. For example, op
 SELECT nationkey, name FROM tpch.tiny.nation LIMIT 10;
 ```
 
-## Run locally without Docker
+## Run locally with Terraform-managed Trino
 
-This setup uses SQLite and runs Trino in Docker. Copy the local example to `.env`, then start the Trino container:
+Requirements: Docker Desktop and Terraform 1.5 or newer installed and available in `PATH`. This setup runs the API and worker on the host, uses SQLite, and lets Terraform create the Trino container. Copy the local example to `.env`:
 
 ```powershell
 pip install -e '.[dev]'
 Copy-Item .env.local.example .env
-docker compose up -d trino
+docker compose stop trino
 alembic upgrade head
 ```
 
@@ -40,17 +40,17 @@ uvicorn snowtrino.main:app --reload
 python -m snowtrino.worker
 ```
 
-The worker and API both load `.env` from the project root. Keep the same `.env` in use for both. `.env.example` is configured for the full Docker Compose stack, where the PostgreSQL and Trino service names are resolvable; it will not work when running Python commands directly from Windows. To switch modes, copy the matching example over `.env`.
+The worker and API both load `.env` from the project root. Keep the same `.env` in use for both. If you started Trino through the previous Compose mock setup, stop that service first to free port 8080. Delete any existing cluster in the dashboard before creating the single Terraform-managed cluster. When a cluster is created, the worker runs Terraform `init`, `plan`, and `apply`; the local Docker provider creates `snowtrino-local-trino` and publishes its HTTP port on `127.0.0.1:8080`. Stop destroys that container, Start recreates it, and Delete destroys it and removes the cluster record. Terraform state is local under `terraform/local` and is ignored by Git. Scaling a single local Trino container is not supported. `.env.example` is for the full Docker Compose stack, which keeps its standalone Trino service in mock mode.
 
 ## API
 
-The `/api/v1` endpoints cover cluster create/list/details/start/stop/scale/delete, readiness, SQL execution/history, and operation status/logs. Infrastructure changes are queued in PostgreSQL. Incompatible lifecycle changes return HTTP 409. SQL is sent only through `trino-python-client`; result rows are capped by `TRINO_MAX_RESULT_ROWS`.
+The `/api/v1` endpoints cover cluster create/list/details/start/stop/scale/delete, readiness, SQL execution/history, and operation status/logs. Infrastructure changes are queued in the configured database. Incompatible lifecycle changes return HTTP 409. SQL is sent only through `trino-python-client`; result rows are capped by `TRINO_MAX_RESULT_ROWS`.
 
 ## Current implementation boundary
 
-- The mock provider connects to one Dockerized local Trino instance. Create another mock cluster only after deleting the existing one. Stop and delete change SnowTrino's logical state; stop the Trino container separately with `docker compose stop trino` if you want to stop its process.
-- `TerraformAdapter` is a safe argument-list subprocess wrapper with timeout and bounded error output, but no provider module or cluster workspace is supplied yet.
-- Helm deployment, real Trino readiness checks, and AWS EKS/VPC provisioning still need implementation before setting infrastructure mode to a real provider. Non-mock mode deliberately fails with an actionable configuration error rather than reporting fake success.
+- The mock provider connects to the Trino service in Docker Compose and only simulates lifecycle changes. The local provider uses Terraform and the Docker provider to create one standalone Trino container.
+- `TerraformAdapter` uses argument-list subprocess calls with timeouts and bounded output. The local Docker module is implemented; AWS infrastructure and isolated cloud workspaces are not.
+- AWS Helm deployment, AWS EKS/VPC provisioning, and cloud Trino readiness checks still need implementation before setting infrastructure mode to a real cloud provider. Unsupported providers fail with an actionable configuration error rather than reporting fake success.
 - Azure and GCP return unsupported-provider errors outside mock mode.
 - Authentication is not implemented. Keep this service on a trusted local network until an authentication and authorization layer is added.
 
