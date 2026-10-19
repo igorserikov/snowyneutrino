@@ -20,6 +20,7 @@ services:
       db: {condition: service_healthy}
       iceberg-catalog-init: {condition: service_completed_successfully}
       object-store-init: {condition: service_completed_successfully}
+      hive-metastore: {condition: service_healthy}
   iceberg-catalog-init:
     image: postgres:16.8
     entrypoint: ["psql"]
@@ -62,6 +63,36 @@ services:
     depends_on:
       rustfs:
         condition: service_healthy
+  hive-metastore-data-init:
+    image: apache/hive:4.0.0
+    user: root
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["chown -R hive:hive /data"]
+    volumes:
+      - hive_metastore_data:/data
+  hive-metastore:
+    image: apache/hive:4.0.0
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: derby
+      HIVE_CUSTOM_CONF_DIR: /hive_custom_conf
+      HADOOP_CLASSPATH: /opt/hadoop/share/hadoop/tools/lib/*
+    volumes:
+      - hive_metastore_data:/opt/hive/data/warehouse
+      - ./trino/hive-metastore/hive-site.xml:/hive_custom_conf/hive-site.xml:ro
+      - ./trino/hive-metastore/core-site.xml:/hive_custom_conf/core-site.xml:ro
+    depends_on:
+      hive-metastore-data-init:
+        condition: service_completed_successfully
+      object-store-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/9083'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
   web:
     build: .
     env_file: .env
@@ -75,3 +106,4 @@ services:
 volumes:
   postgres_data:
   rustfs_data:
+  hive_metastore_data:

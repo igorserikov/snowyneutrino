@@ -46,6 +46,17 @@ SHOW TABLES FROM postgres.public;
 SELECT * FROM postgres.public.iceberg_tables;
 ```
 
+The `hive` catalog uses an Apache Hive Metastore and stores Hive table data in RustFS. The mock catalog enables writes to non-managed (external) Hive tables, which lets the example `INSERT` work with Hive 4's metastore. Create and query a Hive table with:
+
+```sql
+CREATE SCHEMA hive.demo WITH (location = 's3://warehouse/hive/demo/');
+CREATE TABLE hive.demo.events (id bigint, message varchar) WITH (format = 'PARQUET');
+INSERT INTO hive.demo.events VALUES (1, 'stored in RustFS');
+SELECT * FROM hive.demo.events;
+```
+
+Run these statements one at a time. The metastore database is persisted in the `hive_metastore_data` Compose volume.
+
 ## Run locally with mock Trino
 
 To run the mock Trino, RustFS, and their Iceberg catalog database in Docker while running the SnowTrino API from the host, use the standalone Compose file. Trino is published at `http://localhost:8080`, RustFS's S3 API at `http://localhost:9000`, and the RustFS console at `http://localhost:9001`:
