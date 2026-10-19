@@ -38,6 +38,14 @@ After it starts, retry only the statement that failed; the schema and table may 
 
 The RustFS console is available at http://localhost:9001 with the local demo credentials `minioadmin` / `minioadmin`.
 
+The mock Trino also exposes the Compose PostgreSQL database as the `postgres` catalog. For example, list schemas and inspect the Iceberg JDBC catalog metadata:
+
+```sql
+SHOW SCHEMAS FROM postgres;
+SHOW TABLES FROM postgres.public;
+SELECT * FROM postgres.public.iceberg_tables;
+```
+
 ## Run locally with mock Trino
 
 To run the mock Trino, RustFS, and their Iceberg catalog database in Docker while running the SnowTrino API from the host, use the standalone Compose file. Trino is published at `http://localhost:8080`, RustFS's S3 API at `http://localhost:9000`, and the RustFS console at `http://localhost:9001`:
