@@ -1,5 +1,7 @@
 import json
 import time
+from contextlib import asynccontextmanager
+from threading import Event, Thread
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
@@ -14,8 +16,24 @@ from snowtrino.db import SessionLocal
 from snowtrino.models import Cluster, ClusterStatus, Operation, QueryRecord
 from snowtrino.query import encode_result, execute
 from snowtrino.schemas import ClusterCreate, QueryRequest, ScaleRequest
+from snowtrino.worker import run as run_worker
 
-app = FastAPI(title="SnowTrino", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    stop_event = Event()
+    worker_thread = Thread(
+        target=run_worker, args=(stop_event,), name="snowtrino-worker", daemon=True
+    )
+    worker_thread.start()
+    try:
+        yield
+    finally:
+        stop_event.set()
+        worker_thread.join(timeout=5)
+
+
+app = FastAPI(title="SnowTrino", version="0.1.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
@@ -125,9 +143,14 @@ def run_query(cluster_id: str, body: QueryRequest, db: Session = Depends(get_db)
         raise HTTPException(404, "Cluster not found")
     if cluster.status != "running" or not cluster.endpoint:
         raise HTTPException(409, "Cluster is not ready to accept queries")
+    sql = body.sql.rstrip()
+    if sql.endswith(";"):
+        sql = sql[:-1].rstrip()
+    if not sql:
+        raise HTTPException(422, "SQL must not be blank")
     started = time.monotonic()
     try:
-        columns, rows = execute(cluster.endpoint, body.sql)
+        columns, rows = execute(cluster.endpoint, sql)
         record = QueryRecord(cluster_id=cluster.id, sql=body.sql, status="succeeded",
                              duration_ms=int((time.monotonic()-started)*1000), row_count=len(rows),
                              result_json=encode_result(columns, rows))

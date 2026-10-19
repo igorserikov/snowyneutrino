@@ -8,10 +8,10 @@ Requirements: Docker Desktop with Docker Compose.
 
 ```powershell
 Copy-Item .env.example .env
-docker compose up --build
+docker compose up --build --remove-orphans
 ```
 
-Open http://localhost:8000. PostgreSQL stores clusters, operations, and query history. The dedicated worker polls the operations table; lifecycle requests return HTTP 202 and survive web-process restarts. In mock mode, the app uses one local Trino container and waits for `SELECT 1` to succeed before marking the cluster ready. The Trino HTTP port is bound to localhost only. Mock lifecycle actions update the app's cluster state; the shared Trino container itself stays running until Docker Compose stops it.
+Open http://localhost:8000. PostgreSQL stores clusters, operations, and query history. The API starts its operation worker automatically; queued lifecycle requests remain in the database across web-process restarts. In mock mode, the app uses one local Trino container and waits for `SELECT 1` to succeed before marking the cluster ready. The Trino HTTP port is bound to localhost only. Mock lifecycle actions update the app's cluster state; the shared Trino container itself stays running until Docker Compose stops it.
 
 The local Trino image includes a read-only TPC-H sample catalog. For example, open the cluster's SQL page and run:
 
@@ -21,7 +21,7 @@ SELECT nationkey, name FROM tpch.tiny.nation LIMIT 10;
 
 ## Run locally with mock Trino
 
-To run only the mock Trino service in Docker and the SnowTrino API/worker from the host, use the standalone Compose file. It publishes Trino at the fixed local address `http://localhost:8080` and mounts the sample catalog:
+To run only the mock Trino service in Docker and the SnowTrino API from the host, use the standalone Compose file. It publishes Trino at the fixed local address `http://localhost:8080` and mounts the sample catalog:
 
 ```powershell
 Copy-Item .env.mock.example .env
@@ -29,21 +29,17 @@ docker compose -f docker-compose.mock.yml up -d
 alembic upgrade head
 ```
 
-Then start the API and worker in separate PowerShell windows:
+Then start the API; it starts the worker automatically:
 
 ```powershell
 uvicorn snowtrino.main:app --reload
-```
-
-```powershell
-python -m snowtrino.worker
 ```
 
 Stop the mock Trino service with `docker compose -f docker-compose.mock.yml down`.
 
 ## Run locally with Terraform-managed Trino
 
-Requirements: Docker Desktop and Terraform 1.5 or newer installed and available in `PATH`. This setup runs the API and worker on the host, uses SQLite, and lets Terraform create the Trino container. Copy the local example to `.env`:
+Requirements: Docker Desktop and Terraform 1.5 or newer installed and available in `PATH`. This setup runs the API and its embedded worker on the host, uses SQLite, and lets Terraform create the Trino container. Copy the local example to `.env`:
 
 ```powershell
 pip install -e '.[dev]'
@@ -52,17 +48,14 @@ docker compose stop trino
 alembic upgrade head
 ```
 
-Then, from the project root with the virtual environment active, start the API and worker in separate PowerShell windows:
+Then, from the project root with the virtual environment active, start the API; it starts the worker automatically:
 
 ```powershell
 uvicorn snowtrino.main:app --reload
 ```
 
-```powershell
-python -m snowtrino.worker
-```
 
-The worker and API both load `.env` from the project root. Keep the same `.env` in use for both. If you started Trino through the previous Compose mock setup, stop that service first to free port 8080. Delete any existing cluster in the dashboard before creating the single Terraform-managed cluster. When a cluster is created, the worker runs Terraform `init`, `plan`, and `apply`; the local Docker provider creates `snowtrino-local-trino` and publishes its HTTP port on `127.0.0.1:8080`. Stop destroys that container, Start recreates it, and Delete destroys it and removes the cluster record. Terraform state is local under `terraform/local` and is ignored by Git. Scaling a single local Trino container is not supported. `.env.example` is for the full Docker Compose stack, which keeps its standalone Trino service in mock mode.
+The API and embedded worker load `.env` from the project root. If you started Trino through the previous Compose mock setup, stop that service first to free port 8080. Delete any existing cluster in the dashboard before creating the single Terraform-managed cluster. When a cluster is created, the worker runs Terraform `init`, `plan`, and `apply`; the local Docker provider creates `snowtrino-local-trino` and publishes its HTTP port on `127.0.0.1:8080`. Stop destroys that container, Start recreates it, and Delete destroys it and removes the cluster record. Terraform state is local under `terraform/local` and is ignored by Git. Scaling a single local Trino container is not supported. `.env.example` is for the full Docker Compose stack, which keeps its standalone Trino service in mock mode.
 
 ## API
 

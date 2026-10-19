@@ -20,7 +20,8 @@ def check_ready(endpoint: str) -> bool:
     cur = conn.cursor()
     try:
         cur.execute("SELECT 1")
-        return cur.fetchone() == (1,)
+        row = cur.fetchone()
+        return row is not None and row[0] == 1
     finally:
         cur.close()
         conn.close()

@@ -1,13 +1,16 @@
-"""Durable database-backed operation worker. Run as a separate process."""
+"""Durable database-backed operation worker."""
 import json
-import time
+import logging
 from datetime import datetime, timezone
+from threading import Event
 
 from sqlalchemy import select
 
 from snowtrino.db import SessionLocal
 from snowtrino.infrastructure import UnsupportedProviderError, provider_for
 from snowtrino.models import Cluster, Operation
+
+logger = logging.getLogger(__name__)
 
 
 def claim_one():
@@ -82,13 +85,23 @@ def process(operation_id: str):
             db.commit()
 
 
+def run(stop_event: Event | None = None):
+    stop_event = stop_event or Event()
+    logger.info("Operation worker started")
+    while not stop_event.is_set():
+        try:
+            operation_id = claim_one()
+            if operation_id:
+                process(operation_id)
+            else:
+                stop_event.wait(1)
+        except Exception:
+            logger.exception("Operation worker loop failed")
+            stop_event.wait(1)
+
+
 def main():
-    while True:
-        operation_id = claim_one()
-        if operation_id:
-            process(operation_id)
-        else:
-            time.sleep(1)
+    run()
 
 
 if __name__ == "__main__":
