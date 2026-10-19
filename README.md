@@ -11,17 +11,36 @@ Copy-Item .env.example .env
 docker compose up --build --remove-orphans
 ```
 
-Open http://localhost:8000. PostgreSQL stores clusters, operations, and query history. The API starts its operation worker automatically; queued lifecycle requests remain in the database across web-process restarts. In mock mode, the app uses one local Trino container and waits for `SELECT 1` to succeed before marking the cluster ready. The Trino HTTP port is bound to localhost only. Mock lifecycle actions update the app's cluster state; the shared Trino container itself stays running until Docker Compose stops it.
+Open http://localhost:8000. PostgreSQL stores clusters, operations, query history, and Iceberg catalog metadata. The API starts its operation worker automatically; queued lifecycle requests remain in the database across web-process restarts. In mock mode, the app uses one local Trino container and waits for `SELECT 1` to succeed before marking the cluster ready. The Trino HTTP and RustFS ports are bound to localhost only. Mock lifecycle actions update the app's cluster state; the shared Trino and RustFS services stay running until Docker Compose stops them.
 
-The local Trino image includes a read-only TPC-H sample catalog. For example, open the cluster's SQL page and run:
+The mock Trino image includes the read-only TPC-H sample catalog and a writable Iceberg catalog backed by RustFS, an S3-compatible object store. For example, open the cluster's SQL page and run:
 
 ```sql
 SELECT nationkey, name FROM tpch.tiny.nation LIMIT 10;
 ```
 
+Create and query an Iceberg table in the object store by running these statements one at a time:
+
+```sql
+CREATE SCHEMA iceberg.demo WITH (location = 's3://warehouse/demo/');
+CREATE TABLE iceberg.demo.events (id bigint, message varchar) WITH (format = 'PARQUET');
+INSERT INTO iceberg.demo.events VALUES (1, 'stored in RustFS');
+SELECT * FROM iceberg.demo.events;
+```
+
+Run each statement separately. If upgrading an existing mock setup from JDBC catalog schema `V0`, the catalog configuration now uses `V1` and Trino migrates the metadata database on startup. Recreate Trino with:
+
+```powershell
+docker compose -f docker-compose.mock.yml up -d --force-recreate trino
+```
+
+After it starts, retry only the statement that failed; the schema and table may already have been created.
+
+The RustFS console is available at http://localhost:9001 with the local demo credentials `minioadmin` / `minioadmin`.
+
 ## Run locally with mock Trino
 
-To run only the mock Trino service in Docker and the SnowTrino API from the host, use the standalone Compose file. It publishes Trino at the fixed local address `http://localhost:8080` and mounts the sample catalog:
+To run the mock Trino, RustFS, and their Iceberg catalog database in Docker while running the SnowTrino API from the host, use the standalone Compose file. Trino is published at `http://localhost:8080`, RustFS's S3 API at `http://localhost:9000`, and the RustFS console at `http://localhost:9001`:
 
 ```powershell
 Copy-Item .env.mock.example .env

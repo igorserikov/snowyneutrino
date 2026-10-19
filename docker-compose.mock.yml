@@ -1,7 +1,73 @@
 services:
+  db:
+    image: postgres:16.8
+    environment:
+      POSTGRES_DB: snowtrino
+      POSTGRES_USER: snowtrino
+      POSTGRES_PASSWORD: snowtrino
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U snowtrino"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+  iceberg-catalog-init:
+    image: postgres:16.8
+    entrypoint: ["psql"]
+    command: ["-h", "db", "-U", "snowtrino", "-d", "snowtrino", "-v", "ON_ERROR_STOP=1", "-f", "/init.sql"]
+    environment:
+      PGPASSWORD: snowtrino
+    volumes:
+      - ./trino/init/iceberg-catalog.sql:/init.sql:ro
+    depends_on:
+      db:
+        condition: service_healthy
+  rustfs:
+    image: rustfs/rustfs:latest
+    command: ["/data"]
+    environment:
+      RUSTFS_ACCESS_KEY: minioadmin
+      RUSTFS_SECRET_KEY: minioadmin
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ADDRESS: ":9001"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_OBS_LOGGER_LEVEL: error
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - rustfs_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  object-store-init:
+    image: public.ecr.aws/aws-cli/aws-cli:2.36.44
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["until aws --endpoint-url http://rustfs:9000 s3api list-buckets >/dev/null 2>&1; do sleep 2; done; if ! aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket warehouse >/dev/null 2>&1; then aws --endpoint-url http://rustfs:9000 s3api create-bucket --bucket warehouse; fi"]
+    environment:
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+    depends_on:
+      rustfs:
+        condition: service_healthy
   trino:
     image: trinodb/trino:455
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
-      - ./trino/catalog:/etc/trino/catalog:ro
+      - ./trino/mock-catalog:/etc/trino/catalog:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      iceberg-catalog-init:
+        condition: service_completed_successfully
+      object-store-init:
+        condition: service_completed_successfully
+volumes:
+  postgres_data:
+  rustfs_data:
