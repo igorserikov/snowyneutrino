@@ -140,7 +140,7 @@ def run_query(cluster_id: str, body: QueryRequest, db: Session = Depends(get_db)
                              duration_ms=int((time.monotonic()-started)*1000), error=str(exc)[:2000])
         db.add(record)
         db.commit()
-        raise HTTPException(502, "Trino query failed") from exc
+        raise HTTPException(502, f"Trino query failed: {str(exc)[:1000]}") from exc
 
 
 @app.get("/api/v1/clusters/{cluster_id}/queries")

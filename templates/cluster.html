@@ -1,9 +1,112 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ cluster.name }} · SnowTrino</title><link rel="stylesheet" href="/static/style.css"></head><body><main>
-<p><a href="/">← Dashboard</a></p><h1>{{ cluster.name }}</h1><p><span class="status {{ cluster.status }}">{{ cluster.status }}</span> · {{ cluster.provider }} / {{ cluster.region }} · Trino {{ cluster.trino_version }}</p>
-<dl><dt>Endpoint</dt><dd>{{ cluster.endpoint or 'Not available' }}</dd><dt>Workers</dt><dd>{{ cluster.worker_count }} × {{ cluster.worker_cpu }} CPU / {{ cluster.worker_memory }}</dd><dt>Last error</dt><dd>{{ cluster.last_error or 'None' }}</dd></dl>
-<section><h2>SQL Console</h2><p>Only available when a configured Trino endpoint is running.</p><textarea id="sql" rows="7">SELECT 1</textarea><button onclick="runSql()" {% if cluster.status != 'running' or not cluster.endpoint %}disabled{% endif %}>Run query</button><p id="query-status"></p><div id="result"></div></section>
-<section><h2>Query history</h2><table><tr><th>Time</th><th>Status</th><th>Duration</th><th>Rows</th><th>SQL</th></tr>{% for q in queries %}<tr><td>{{ q.created_at }}</td><td>{{ q.status }}</td><td>{{ q.duration_ms }} ms</td><td>{{ q.row_count }}</td><td><code>{{ q.sql }}</code></td></tr>{% else %}<tr><td colspan="5">No queries yet.</td></tr>{% endfor %}</table></section>
-</main><script>
-async function runSql(){const out=document.querySelector('#query-status');out.textContent='Running…';const r=await fetch('/api/v1/clusters/{{ cluster.id }}/queries',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sql:document.querySelector('#sql').value})});const data=await r.json();if(!r.ok){out.textContent=data.detail||'Query failed';return}out.textContent=`${data.status} · ${data.row_count} rows · ${data.duration_ms} ms`;document.querySelector('#result').innerHTML=table(data.columns,data.rows)}
-function table(cols,rows){const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));return '<table><thead><tr>'+cols.map(x=>'<th>'+esc(x)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(row=>'<tr>'+row.map(x=>'<td>'+esc(x)+'</td>').join('')+'</tr>').join('')+'</tbody></table>'}
-</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ cluster.name }} · SnowTrino</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/sql-console.css">
+</head>
+<body>
+<main>
+  <p><a href="/">← Dashboard</a></p>
+  <h1>{{ cluster.name }}</h1>
+  <p><span class="status {{ cluster.status }}">{{ cluster.status }}</span> · {{ cluster.provider }} / {{ cluster.region }} · Trino {{ cluster.trino_version }}</p>
+  <dl>
+    <dt>Endpoint</dt><dd>{{ cluster.endpoint or 'Not available' }}</dd>
+    <dt>Workers</dt><dd>{{ cluster.worker_count }} × {{ cluster.worker_cpu }} CPU / {{ cluster.worker_memory }}</dd>
+    <dt>Last error</dt><dd>{{ cluster.last_error or 'None' }}</dd>
+  </dl>
+
+  <section class="sql-console">
+    <div class="console-heading">
+      <div>
+        <h2>SQL Console</h2>
+        <p class="muted">Run SQL against the mock Trino cluster.</p>
+      </div>
+      <span class="endpoint-badge" title="Mock Trino endpoint">{{ cluster.endpoint or 'Mock endpoint not available' }}</span>
+    </div>
+    <label for="sql">Query</label>
+    <textarea id="sql" class="sql-editor" spellcheck="false" aria-label="SQL query">SELECT 1</textarea>
+    <div class="console-actions">
+      <span class="shortcut-hint">Ctrl + Enter to run</span>
+      <button id="run-query" onclick="runSql()" {% if cluster.status != 'running' or not cluster.endpoint %}disabled{% endif %}>Run query</button>
+    </div>
+
+    <div class="response-heading">
+      <h3>Response</h3>
+      <span id="query-status" class="query-status" role="status" aria-live="polite">{% if cluster.status != 'running' %}Cluster is not running{% else %}Ready{% endif %}</span>
+    </div>
+    <div id="result" class="query-result" aria-live="polite"><p class="result-placeholder">Query results and errors will appear here.</p></div>
+  </section>
+
+  <section>
+    <h2>Query history</h2>
+    <table>
+      <tr><th>Time</th><th>Status</th><th>Duration</th><th>Rows</th><th>SQL</th></tr>
+      {% for q in queries %}
+      <tr><td>{{ q.created_at }}</td><td>{{ q.status }}</td><td>{{ q.duration_ms }} ms</td><td>{{ q.row_count }}</td><td><code>{{ q.sql }}</code></td></tr>
+      {% else %}
+      <tr><td colspan="5">No queries yet.</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+</main>
+<script>
+const sqlEditor = document.querySelector('#sql');
+const runButton = document.querySelector('#run-query');
+const queryStatus = document.querySelector('#query-status');
+const resultBox = document.querySelector('#result');
+
+sqlEditor.addEventListener('keydown', event => {
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+    event.preventDefault();
+    if (!runButton.disabled) runSql();
+  }
+});
+
+async function runSql() {
+  runButton.disabled = true;
+  queryStatus.textContent = 'Running…';
+  queryStatus.className = 'query-status';
+  resultBox.innerHTML = '<p class="result-placeholder">Waiting for Trino response…</p>';
+  try {
+    const response = await fetch('/api/v1/clusters/{{ cluster.id }}/queries', {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({sql: sqlEditor.value})
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      queryStatus.textContent = 'Failed';
+      queryStatus.classList.add('failed');
+      resultBox.innerHTML = `<pre class="query-error">${escapeHtml(data.detail || 'Query failed')}</pre>`;
+      return;
+    }
+    queryStatus.textContent = `${data.status} · ${data.row_count} rows · ${data.duration_ms} ms`;
+    queryStatus.classList.add('succeeded');
+    resultBox.innerHTML = renderTable(data.columns, data.rows);
+  } catch (error) {
+    queryStatus.textContent = 'Connection error';
+    queryStatus.classList.add('failed');
+    resultBox.innerHTML = `<pre class="query-error">${escapeHtml(error.message || 'Could not reach SnowTrino API')}</pre>`;
+  } finally {
+    runButton.disabled = false;
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[character]);
+}
+
+function renderTable(columns, rows) {
+  if (!columns.length) return '<p class="result-placeholder">Query completed successfully. No rows were returned.</p>';
+  const header = columns.map(column => `<th>${escapeHtml(column)}</th>`).join('');
+  const body = rows.map(row => `<tr>${row.map(value => `<td>${escapeHtml(value)}</td>`).join('')}</tr>`).join('');
+  return `<div class="result-table-wrap"><table><thead><tr>${header}</tr></thead><tbody>${body || '<tr><td colspan="' + columns.length + '" class="result-placeholder">No rows returned.</td></tr>'}</tbody></table></div>`;
+}
+</script>
+</body>
+</html>
