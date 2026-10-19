@@ -1,0 +1,7 @@
+services:
+  trino:
+    image: trinodb/trino:455
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./trino/catalog:/etc/trino/catalog:ro

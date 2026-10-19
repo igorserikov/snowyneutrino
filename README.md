@@ -19,6 +19,28 @@ The local Trino image includes a read-only TPC-H sample catalog. For example, op
 SELECT nationkey, name FROM tpch.tiny.nation LIMIT 10;
 ```
 
+## Run locally with mock Trino
+
+To run only the mock Trino service in Docker and the SnowTrino API/worker from the host, use the standalone Compose file. It publishes Trino at the fixed local address `http://localhost:8080` and mounts the sample catalog:
+
+```powershell
+Copy-Item .env.mock.example .env
+docker compose -f docker-compose.mock.yml up -d
+alembic upgrade head
+```
+
+Then start the API and worker in separate PowerShell windows:
+
+```powershell
+uvicorn snowtrino.main:app --reload
+```
+
+```powershell
+python -m snowtrino.worker
+```
+
+Stop the mock Trino service with `docker compose -f docker-compose.mock.yml down`.
+
 ## Run locally with Terraform-managed Trino
 
 Requirements: Docker Desktop and Terraform 1.5 or newer installed and available in `PATH`. This setup runs the API and worker on the host, uses SQLite, and lets Terraform create the Trino container. Copy the local example to `.env`:

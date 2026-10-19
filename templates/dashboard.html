@@ -1,17 +1,143 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SnowTrino</title><script src="https://unpkg.com/htmx.org@2.0.4"></script><link rel="stylesheet" href="/static/style.css"></head>
-<body><main><header><div><h1>SnowTrino</h1><p>Trino cluster control plane</p></div></header>
-<section class="cards"><article><b>{{ counts.total }}</b><span>Clusters</span></article><article><b>{{ counts.running }}</b><span>Running</span></article><article><b>{{ counts.stopped }}</b><span>Stopped</span></article><article><b>{{ counts.failed }}</b><span>Failed</span></article></section>
-<section><h2>Create cluster</h2>{% if infrastructure_mode in ['mock', 'local'] %}<p>{% if infrastructure_mode == 'local' %}Local mode uses Terraform to manage one Docker Trino container.{% else %}Mock mode uses the local Docker Trino service.{% endif %} Provider and region are saved as metadata only.</p>{% if counts.total > 0 %}<p>Only one local Trino cluster is allowed. Delete the current cluster before creating another.</p>{% endif %}{% endif %}<form id="create" onsubmit="return createCluster(event)">
-<input name="name" required pattern="[a-z][a-z0-9-]{1,62}" placeholder="cluster-name"><input name="region" value="us-east-1" required>
-<select name="provider"><option>AWS</option><option>Azure</option><option>GCP</option></select><input name="trino_version" value="455" aria-label="Trino version">
-<input name="worker_count" type="number" min="1" max="100" value="2"><button {% if infrastructure_mode in ['mock', 'local'] and counts.total > 0 %}disabled{% endif %}>Create</button></form><p id="message"></p></section>
-<section><h2>Clusters</h2><table><thead><tr><th>Name</th><th>Provider</th><th>Region</th><th>Status</th><th>Version</th><th>Workers</th><th>Actions</th></tr></thead><tbody hx-get="/fragments/clusters" hx-trigger="every 5s" hx-swap="innerHTML">
-{% include "cluster_rows.html" %}</tbody></table></section>
-<section><h2>Recent operations</h2><table><tr><th>Type</th><th>Status</th><th>Created</th><th>Log</th></tr>{% for op in operations %}<tr><td>{{ op.kind }}</td><td>{{ op.status }}</td><td>{{ op.created_at }}</td><td><a href="/api/v1/operations/{{ op.id }}/logs">View</a></td></tr>{% else %}<tr><td colspan="4">No operations yet.</td></tr>{% endfor %}</table></section>
-</main><script>
-async function createCluster(e){e.preventDefault();const f=new FormData(e.target);const body=Object.fromEntries(f.entries());body.worker_count=Number(body.worker_count);const r=await fetch('/api/v1/clusters',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const data=await r.json();document.querySelector('#message').textContent=r.ok?'Queued operation '+data.operation_id:(data.detail||'Request failed');if(r.ok)setTimeout(()=>location.reload(),1000);return false}
-async function act(id,action){const r=await fetch(`/api/v1/clusters/${id}/${action}`,{method:'POST'});if(r.ok)location.reload();else alert((await r.json()).detail)}
-async function removeCluster(id,name){if(!confirm(`Delete cluster ${name}?`))return;const r=await fetch(`/api/v1/clusters/${id}`,{method:'DELETE'});if(r.ok)location.reload();else alert((await r.json()).detail)}
-</script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SnowTrino</title>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/create-cluster.css">
+</head>
+<body>
+<main>
+  <header><div><h1>SnowTrino</h1><p>Trino cluster control plane</p></div></header>
+  <section class="cards">
+    <article><b>{{ counts.total }}</b><span>Clusters</span></article>
+    <article><b>{{ counts.running }}</b><span>Running</span></article>
+    <article><b>{{ counts.stopped }}</b><span>Stopped</span></article>
+    <article><b>{{ counts.failed }}</b><span>Failed</span></article>
+  </section>
+
+  <section>
+    <h2>Create cluster</h2>
+    {% if infrastructure_mode in ['mock', 'local'] %}
+    <p>{% if infrastructure_mode == 'local' %}Local mode uses Terraform to manage one Docker Trino container.{% else %}Mock mode uses the local Docker Trino service.{% endif %} Provider and region are saved as metadata only.</p>
+    {% if counts.total > 0 %}<p>Only one local Trino cluster is allowed. Delete the current cluster before creating another.</p>{% endif %}
+    {% endif %}
+
+    <div class="create-layout">
+      <div class="json-editor-panel">
+        <label for="cluster-params">Cluster parameters (JSON)</label>
+        <textarea id="cluster-params" class="cluster-json" spellcheck="false" aria-label="Cluster parameters as JSON">{
+  "name": "mock-cluster",
+  "provider": "AWS",
+  "region": "us-east-1",
+  "trino_version": "455",
+  "worker_count": 2,
+  "worker_cpu": "2",
+  "worker_memory": "4Gi",
+  "coordinator_cpu": "2",
+  "coordinator_memory": "4Gi"
+}</textarea>
+        <p id="json-error" class="json-error" role="alert"></p>
+        <button id="create-button" type="button" onclick="createCluster()" {% if infrastructure_mode in ['mock', 'local'] and counts.total > 0 %}disabled{% endif %}>Create</button>
+        <p id="message" role="status" aria-live="polite"></p>
+      </div>
+      <aside class="request-panel">
+        <h3>Request JSON</h3>
+        <p class="muted">This JSON string is sent to the cluster API.</p>
+        <pre id="request-json"></pre>
+      </aside>
+    </div>
+  </section>
+
+  <section>
+    <h2>Clusters</h2>
+    <table>
+      <thead><tr><th>Name</th><th>Provider</th><th>Region</th><th>Status</th><th>Version</th><th>Workers</th><th>Actions</th></tr></thead>
+      <tbody hx-get="/fragments/clusters" hx-trigger="every 5s" hx-swap="innerHTML">
+        {% include "cluster_rows.html" %}
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Recent operations</h2>
+    <table>
+      <tr><th>Type</th><th>Status</th><th>Created</th><th>Log</th></tr>
+      {% for op in operations %}
+      <tr><td>{{ op.kind }}</td><td>{{ op.status }}</td><td>{{ op.created_at }}</td><td><a href="/api/v1/operations/{{ op.id }}/logs">View</a></td></tr>
+      {% else %}
+      <tr><td colspan="4">No operations yet.</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+</main>
+<script>
+const paramsEditor = document.querySelector('#cluster-params');
+const requestPreview = document.querySelector('#request-json');
+const jsonError = document.querySelector('#json-error');
+const createButton = document.querySelector('#create-button');
+
+function parseClusterParams() {
+  try {
+    const params = JSON.parse(paramsEditor.value);
+    if (!params || Array.isArray(params) || typeof params !== 'object') {
+      throw new Error('Parameters must be a JSON object.');
+    }
+    requestPreview.textContent = JSON.stringify(params, null, 2);
+    jsonError.textContent = '';
+    return params;
+  } catch (error) {
+    requestPreview.textContent = paramsEditor.value;
+    jsonError.textContent = error.message;
+    return null;
+  }
+}
+
+paramsEditor.addEventListener('input', parseClusterParams);
+parseClusterParams();
+
+async function createCluster() {
+  const params = parseClusterParams();
+  if (!params) return;
+  createButton.disabled = true;
+  const message = document.querySelector('#message');
+  message.textContent = 'Creating cluster…';
+  let queued = false;
+  try {
+    const response = await fetch('/api/v1/clusters', {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify(params)
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      message.textContent = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      return;
+    }
+    message.textContent = `Queued operation ${data.operation_id}`;
+    queued = true;
+    setTimeout(() => location.reload(), 1000);
+  } catch (error) {
+    message.textContent = error.message || 'Request failed';
+  } finally {
+    if (!queued) createButton.disabled = false;
+  }
+}
+
+async function act(id, action) {
+  const response = await fetch(`/api/v1/clusters/${id}/${action}`, {method: 'POST'});
+  if (response.ok) location.reload();
+  else alert((await response.json()).detail);
+}
+
+async function removeCluster(id, name) {
+  if (!confirm(`Delete cluster ${name}?`)) return;
+  const response = await fetch(`/api/v1/clusters/${id}`, {method: 'DELETE'});
+  if (response.ok) location.reload();
+  else alert((await response.json()).detail);
+}
+</script>
+</body>
+</html>
