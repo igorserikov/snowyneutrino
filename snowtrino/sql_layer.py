@@ -171,6 +171,24 @@ def _show_stages(sql: str, db: Session, cluster_id: str):
     return _result(columns, rows)
 
 
+def _describe_stage(sql: str, db: Session, cluster_id: str):
+    match = re.fullmatch(
+        rf"(?:DESC|DESCRIBE)\s+STAGE\s+(?P<name>{_IDENTIFIER})",
+        _statement(sql), re.IGNORECASE,
+    )
+    if not match:
+        raise SqlLayerError("Supported syntax: DESC STAGE stage_name")
+    stage = _stage(db, cluster_id, match.group("name"))
+    columns = ["parent_property", "property", "property_type", "property_value", "property_default"]
+    rows = [
+        ["STAGE_FILE_FORMAT", "TYPE", "String", "CSV", "CSV"],
+        ["STAGE_COPY_OPTIONS", "ON_ERROR", "String", "ABORT_STATEMENT", "ABORT_STATEMENT"],
+        ["STAGE_LOCATION", "URL", "String", stage.url, None],
+        ["STAGE_LOCATION", "ENDPOINT", "String", settings.stage_s3_endpoint, None],
+    ]
+    return _result(columns, rows)
+
+
 def _parse_copy(sql: str):
     match = re.match(
         rf"COPY\s+INTO\s+(?P<target>(?:{_IDENTIFIER}\.)?{_IDENTIFIER}(?:\.{_IDENTIFIER})?)\s+"
@@ -337,6 +355,8 @@ def execute_custom_sql(sql: str, db: Session, cluster_id: str, endpoint: str):
         return _list_stage(statement, db, cluster_id)
     if re.match(r"SHOW\s+STAGES\b", statement, re.IGNORECASE):
         return _show_stages(statement, db, cluster_id)
+    if re.match(r"(?:DESC|DESCRIBE)\s+STAGE\b", statement, re.IGNORECASE):
+        return _describe_stage(statement, db, cluster_id)
     if re.match(r"COPY\s+INTO\b", statement, re.IGNORECASE):
         return _copy_into(statement, db, cluster_id, endpoint)
     return None

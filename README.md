@@ -67,6 +67,7 @@ Create a stage and list files in it (optionally with a path or regular expressio
 CREATE STAGE incoming URL = 's3://warehouse/incoming/';
 SHOW STAGES;
 SHOW STAGES LIKE 'in%';
+DESC STAGE incoming;
 LIST @incoming;
 LIST @incoming/daily PATTERN = '.*[.]csv';
 ```

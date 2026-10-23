@@ -43,12 +43,14 @@
   <section>
     <h2>Query history</h2>
     <table>
-      <tr><th>Time</th><th>Status</th><th>Duration</th><th>Rows</th><th>SQL</th></tr>
+      <thead><tr><th>Time</th><th>Status</th><th>Duration</th><th>Rows</th><th>SQL / command</th></tr></thead>
+      <tbody id="query-history-rows">
       {% for q in queries %}
       <tr><td>{{ q.created_at }}</td><td>{{ q.status }}</td><td>{{ q.duration_ms }} ms</td><td>{{ q.row_count }}</td><td><code>{{ q.sql }}</code></td></tr>
       {% else %}
       <tr><td colspan="5">No queries yet.</td></tr>
       {% endfor %}
+      </tbody>
     </table>
   </section>
 </main>
@@ -57,6 +59,7 @@ const sqlEditor = document.querySelector('#sql');
 const runButton = document.querySelector('#run-query');
 const queryStatus = document.querySelector('#query-status');
 const resultBox = document.querySelector('#result');
+const queryHistoryRows = document.querySelector('#query-history-rows');
 
 sqlEditor.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
@@ -92,6 +95,22 @@ async function runSql() {
     resultBox.innerHTML = `<pre class="query-error">${escapeHtml(error.message || 'Could not reach SnowTrino API')}</pre>`;
   } finally {
     runButton.disabled = false;
+    refreshQueryHistory();
+  }
+}
+
+async function refreshQueryHistory() {
+  try {
+    const response = await fetch('/api/v1/clusters/{{ cluster.id }}/queries');
+    if (!response.ok) return;
+    const queries = await response.json();
+    queryHistoryRows.innerHTML = queries.map(query =>
+      `<tr><td>${escapeHtml(query.created_at)}</td><td>${escapeHtml(query.status)}</td>` +
+      `<td>${escapeHtml(query.duration_ms)} ms</td><td>${escapeHtml(query.row_count)}</td>` +
+      `<td><code>${escapeHtml(query.sql)}</code></td></tr>`
+    ).join('') || '<tr><td colspan="5">No queries yet.</td></tr>';
+  } catch (_) {
+    // Keep the history rendered by the server if refreshing it fails.
   }
 }
 
