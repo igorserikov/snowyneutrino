@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     trino_connect_timeout_seconds: int = 10
     trino_query_timeout_seconds: int = 60
     trino_max_result_rows: int = 1000
+    stage_s3_endpoint: str = "http://localhost:9000"
+    stage_s3_region: str = "us-east-1"
+    stage_s3_access_key: str = "minioadmin"
+    stage_s3_secret_key: str = "minioadmin"
 
 
 settings = Settings()

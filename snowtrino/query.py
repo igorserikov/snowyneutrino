@@ -40,5 +40,18 @@ def execute(endpoint: str, sql: str) -> tuple[list[str], list[list[object]]]:
         conn.close()
 
 
+def execute_update(endpoint: str, sql: str) -> int:
+    """Execute a Trino write and return the connector-reported affected row count."""
+    conn = _connect(endpoint, settings.trino_query_timeout_seconds)
+    cur = conn.cursor()
+    try:
+        cur.execute(sql)
+        cur.fetchall()
+        return max(cur.rowcount, 0)
+    finally:
+        cur.close()
+        conn.close()
+
+
 def encode_result(columns: list[str], rows: list[list[object]]) -> str:
     return json.dumps({"columns": columns, "rows": rows}, default=str)

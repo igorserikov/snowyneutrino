@@ -16,6 +16,7 @@ from snowtrino.db import SessionLocal
 from snowtrino.models import Cluster, ClusterStatus, Operation, QueryRecord
 from snowtrino.query import encode_result, execute
 from snowtrino.schemas import ClusterCreate, QueryRequest, ScaleRequest
+from snowtrino.sql_layer import SqlLayerError, execute_custom_sql
 from snowtrino.worker import run as run_worker
 
 
@@ -150,7 +151,8 @@ def run_query(cluster_id: str, body: QueryRequest, db: Session = Depends(get_db)
         raise HTTPException(422, "SQL must not be blank")
     started = time.monotonic()
     try:
-        columns, rows = execute(cluster.endpoint, sql)
+        custom_result = execute_custom_sql(sql, db, cluster.id, cluster.endpoint)
+        columns, rows = custom_result if custom_result is not None else execute(cluster.endpoint, sql)
         record = QueryRecord(cluster_id=cluster.id, sql=body.sql, status="succeeded",
                              duration_ms=int((time.monotonic()-started)*1000), row_count=len(rows),
                              result_json=encode_result(columns, rows))
@@ -158,12 +160,20 @@ def run_query(cluster_id: str, body: QueryRequest, db: Session = Depends(get_db)
         db.commit()
         return {"query_id": record.id, "status": record.status, "duration_ms": record.duration_ms,
                 "row_count": record.row_count, "columns": columns, "rows": rows}
-    except Exception as exc:
+    except SqlLayerError as exc:
+        db.rollback()
         record = QueryRecord(cluster_id=cluster.id, sql=body.sql, status="failed",
                              duration_ms=int((time.monotonic()-started)*1000), error=str(exc)[:2000])
         db.add(record)
         db.commit()
-        raise HTTPException(502, f"Trino query failed: {str(exc)[:1000]}") from exc
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        record = QueryRecord(cluster_id=cluster.id, sql=body.sql, status="failed",
+                             duration_ms=int((time.monotonic()-started)*1000), error=str(exc)[:2000])
+        db.add(record)
+        db.commit()
+        raise HTTPException(502, f"SQL execution failed: {str(exc)[:1000]}") from exc
 
 
 @app.get("/api/v1/clusters/{cluster_id}/queries")

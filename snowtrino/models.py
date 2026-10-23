@@ -77,3 +77,26 @@ class QueryRecord(Base):
     error: Mapped[str | None] = mapped_column(Text)
     result_json: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class Stage(Base):
+    __tablename__ = "stages"
+    __table_args__ = (UniqueConstraint("cluster_id", "name", name="uq_stage_cluster_name"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    cluster_id: Mapped[str] = mapped_column(ForeignKey("clusters.id"), index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class StageLoad(Base):
+    __tablename__ = "stage_loads"
+    __table_args__ = (UniqueConstraint("stage_id", "target_table", "object_key",
+                                       name="uq_stage_load_object"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    stage_id: Mapped[str] = mapped_column(ForeignKey("stages.id"), index=True)
+    target_table: Mapped[str] = mapped_column(String(512), nullable=False)
+    object_key: Mapped[str] = mapped_column(String(2048), nullable=False)
+    etag: Mapped[str | None] = mapped_column(String(256))
+    last_modified: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    loaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
